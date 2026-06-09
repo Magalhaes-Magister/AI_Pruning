@@ -108,7 +108,7 @@ class CIFAR10VGG(nn.Module):
                 
         return nn.Sequential(*layers)
 
-def train_model(model, trainloader, valloader, epochs=10, lr=1e-3):
+def train_model(model, trainloader, valloader, epochs=10, lr=1e-3, device=device):
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
