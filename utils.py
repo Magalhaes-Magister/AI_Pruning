@@ -6,6 +6,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import time
 from pathlib import Path
 from tqdm import tqdm
 from torch.utils.data import DataLoader, Subset
@@ -183,18 +184,37 @@ def train_model(model, trainloader, valloader, epochs=10, lr=1e-3):
 
     return model, train_losses, val_losses, val_accuracies
 
-def evaluate_model(model, loader, device):
-    model.eval()
+def evaluate_model(model, loader, criterion=None, device=None):
+    """
+    Avalia o modelo calculando métricas de classificação, perda,
+    latência total da inferência (ms) e pico de consumo VRAM (MB).
+    """
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    model.eval()
     y_true = []
     y_pred = []
     y_probs = []
+    total_loss = 0.0
+
+    # Reinicia estatísticas de memória para obter o pico exato desta execução
+    if torch.cuda.is_available() and device.type == 'cuda':
+        torch.cuda.reset_peak_memory_stats(device)
+
+    # Inicializa cronómetro de alta precisão
+    start_time = time.perf_counter()
+
     with torch.no_grad():
         for images, labels in loader:
             images = images.to(device)
             labels = labels.to(device)
 
             outputs = model(images)
+
+            if criterion is not None:
+                loss = criterion(outputs, labels)
+                total_loss += loss.item() * images.size(0)
 
             # predicted class
             _, predicted = torch.max(outputs, 1)
@@ -205,73 +225,42 @@ def evaluate_model(model, loader, device):
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predicted.cpu().numpy())
             y_probs.extend(probs.cpu().numpy())
+    
+    end_time = time.perf_counter()
 
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    y_probs = np.array(y_probs)
+    # Cálculos de Hardware (Latência em milissegundos e VRAM em Megabytes)
+    latency_ms = (end_time - start_time) * 1000
+    vram_mb = torch.cuda.max_memory_allocated(device) / (1024 * 1024) if torch.cuda.is_available() and device.type == 'cuda' else 0.0
 
-    return y_true, y_pred, y_probs
+    metrics = compute_metrics(y_true, y_pred, vram=vram_mb, latency=latency_ms)
 
-def compute_metrics(y_true, y_pred):
+    if criterion is not None:
+        metrics["loss"] = total_loss / len(loader.dataset)
 
+    return y_true, y_pred, metrics
+
+def compute_metrics(y_true, y_pred, vram=None, latency=None):
+    """
+    Calcula as métricas clássicas do Scikit-Learn e anexa opcionalmente
+    a pegada de memória VRAM e a latência obtidas.
+    """
     metrics = {
         "accuracy": accuracy_score(y_true, y_pred),
-
-        "balanced_accuracy":
-            balanced_accuracy_score(y_true, y_pred),
-
-        "precision_macro":
-            precision_score(
-                y_true,
-                y_pred,
-                average="macro",
-                zero_division=0
-            ),
-
-        "precision_weighted":
-            precision_score(
-                y_true,
-                y_pred,
-                average="weighted",
-                zero_division=0
-            ),
-
-        "recall_macro":
-            recall_score(
-                y_true,
-                y_pred,
-                average="macro",
-                zero_division=0
-            ),
-
-        "recall_weighted":
-            recall_score(
-                y_true,
-                y_pred,
-                average="weighted",
-                zero_division=0
-            ),
-
-        "f1_macro":
-            f1_score(
-                y_true,
-                y_pred,
-                average="macro"
-            ),
-
-        "f1_weighted":
-            f1_score(
-                y_true,
-                y_pred,
-                average="weighted"
-            ),
-
-        "cohen_kappa":
-            cohen_kappa_score(y_true, y_pred),
-
-        "mcc":
-            matthews_corrcoef(y_true, y_pred)
+        "balanced_accuracy":balanced_accuracy_score(y_true, y_pred),
+        "precision_macro":precision_score(y_true,y_pred,average="macro",zero_division=0),
+        "precision_weighted":precision_score(y_true,y_pred,average="weighted",zero_division=0),
+        "recall_macro":recall_score(y_true,y_pred,average="macro",zero_division=0),
+        "recall_weighted":recall_score(y_true,y_pred,average="weighted",zero_division=0),
+        "f1_macro":f1_score(y_true,y_pred,average="macro"),
+        "f1_weighted":f1_score(y_true,y_pred,average="weighted"),
+        "cohen_kappa":cohen_kappa_score(y_true, y_pred),
+        "mcc":matthews_corrcoef(y_true, y_pred)
     }
+
+    if vram is not None:
+        metrics["vram"] = vram
+    if latency is not None:
+        metrics["latency"] = latency
 
     return metrics
 
