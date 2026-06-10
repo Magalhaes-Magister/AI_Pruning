@@ -1,3 +1,23 @@
-/data
-/model_dir
-/__pycache__
+# Pastas de dados e modelos (evita commits de datasets grandes ou pesos de modelos)
+/data/
+/model_dir/
+
+# Ambiente Virtual
+.venv/
+venv/
+env/
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# VS Code (configurações do teu editor)
+.vscode/
+
+# Logs e arquivos temporários
+*.log
+.DS_Store
+.ipynb_checkpoints/
